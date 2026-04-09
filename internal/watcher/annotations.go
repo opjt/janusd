@@ -10,7 +10,6 @@ const (
 	AnnotationDBType       = "karden.io/db-type"
 	AnnotationDBHost       = "karden.io/db-host"
 	AnnotationDBPort       = "karden.io/db-port"
-	AnnotationDBUser       = "karden.io/db-user"
 	AnnotationRotationDays = "karden.io/rotation-days"
 )
 

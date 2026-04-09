@@ -110,7 +110,6 @@ func parseTarget(pod *corev1.Pod) *domain.ManagedTarget {
 		DBType:       domain.DBType(ann[AnnotationDBType]),
 		DBHost:       ann[AnnotationDBHost],
 		DBPort:       dbPort,
-		DBUser:       ann[AnnotationDBUser],
 		RotationDays: rotationDays,
 		Status:       domain.StatusActive,
 	}
@@ -152,23 +151,25 @@ func buildSecretData(target *domain.ManagedTarget) map[string]string {
 }
 
 func buildDBSecretData(target *domain.ManagedTarget) map[string]string {
+	username := buildUsername(target.SecretName)
 	password := generatePassword()
 
 	switch target.DBType {
 	case domain.DBTypePostgres:
 		return map[string]string{
-			"POSTGRES_USER":     target.DBUser,
+			"POSTGRES_USER":     username,
 			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "app",
 		}
 	case domain.DBTypeMySQL:
 		return map[string]string{
-			"MYSQL_USER":          target.DBUser,
+			"MYSQL_USER":          username,
 			"MYSQL_PASSWORD":      password,
 			"MYSQL_ROOT_PASSWORD": generatePassword(),
 		}
 	default:
 		return map[string]string{
+			"USERNAME": username,
 			"PASSWORD": password,
 		}
 	}

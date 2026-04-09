@@ -38,7 +38,6 @@ type ManagedTarget struct {
 	DBType        DBType
 	DBHost        string
 	DBPort        int
-	DBUser        string
 	RotationDays  int
 	LastRotatedAt *time.Time
 	Status        Status
