@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	k8sstore "janusd/internal/store/k8s"
+	k8sstore "karden/internal/store/k8s"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"

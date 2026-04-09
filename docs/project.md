@@ -1,4 +1,4 @@
-# Janusd — Kubernetes Native Privileged Access Manager
+# Karden — Kubernetes Native Privileged Access Manager
 
 ## Project Overview
 

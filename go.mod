@@ -1,4 +1,4 @@
-module janusd
+module karden
 
 go 1.25.0
 

@@ -3,7 +3,7 @@ package k8s
 import (
 	"context"
 
-	"janusd/internal/store"
+	"karden/internal/store"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -13,7 +13,7 @@ import (
 
 var _ store.SecretStore = (*Store)(nil)
 
-// Store implements store.SecretStore using K8s Secrets as the backend(저장소).
+// Store implements store.SecretStore using K8s Secrets as the backend.
 type Store struct {
 	client kubernetes.Interface
 }
