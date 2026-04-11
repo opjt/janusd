@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"karden/internal/adapter/k8s"
 	"karden/internal/adapter/sqlite"
 	"karden/internal/api"
+	"karden/internal/pkg/config"
 	"karden/internal/watcher"
 
 	k8sclient "k8s.io/client-go/kubernetes"
@@ -21,6 +23,20 @@ import (
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	env, err := config.NewEnv()
+	if err != nil {
+		slog.Error("failed to load env", "err", err)
+		os.Exit(1)
+	}
+	if err := run(context.Background(), env); err != nil {
+		slog.Error("failed to run", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, env config.Env) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	// K8s client
 	config, err := rest.InClusterConfig()
@@ -41,19 +57,13 @@ func main() {
 
 	clientset, err := k8sclient.NewForConfig(config)
 	if err != nil {
-		slog.Error("failed to create clientset", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create clientset: %w", err)
 	}
 
 	// SQLite
-	dsn := os.Getenv("KARDEN_DB_PATH")
-	if dsn == "" {
-		dsn = "karden.db"
-	}
-	db, err := sqlite.Open(dsn)
+	db, err := sqlite.Open(env.DBPath)
 	if err != nil {
-		slog.Error("failed to open database", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
@@ -65,29 +75,32 @@ func main() {
 	go w.Start()
 
 	// HTTP server
-	addr := os.Getenv("KARDEN_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
+	addr := fmt.Sprintf(":%d", env.Port)
 
 	handler := api.NewHandler(repo, store)
 	srv := api.NewServer(addr, handler)
 
+	errChan := make(chan error, 1)
 	go func() {
 		slog.Info("http server starting", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server error", "err", err)
-			os.Exit(1)
+			errChan <- err
 		}
 	}()
 
-	// graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		slog.Info("shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	slog.Info("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			return err
+		}
+		w.Stop()
+		slog.Info("server shutdown")
+		return nil
+	}
 }

@@ -49,6 +49,8 @@ func (w *Watcher) Start() {
 
 	slog.Info("watcher started")
 	<-w.stopCh
+
+	slog.Info("watcher stopped")
 }
 
 func (w *Watcher) Stop() {
