@@ -16,13 +16,15 @@ import (
 type Watcher struct {
 	client kubernetes.Interface
 	store  workload.SecretStore
+	repo   workload.Repository
 	stopCh chan struct{}
 }
 
-func New(client kubernetes.Interface, store workload.SecretStore) *Watcher {
+func New(client kubernetes.Interface, store workload.SecretStore, repo workload.Repository) *Watcher {
 	return &Watcher{
 		client: client,
 		store:  store,
+		repo:   repo,
 		stopCh: make(chan struct{}),
 	}
 }
@@ -69,7 +71,9 @@ func (w *Watcher) handlePod(pod *corev1.Pod) {
 		"secret", t.SecretName,
 	)
 
-	w.ensureSecret(context.Background(), t)
+	ctx := context.Background()
+	w.ensureSecret(ctx, t)
+	w.upsertWorkload(ctx, t)
 }
 
 // parseTarget extracts a ManagedWorkload from pod annotations.
@@ -112,6 +116,21 @@ func parseTarget(pod *corev1.Pod) *workload.ManagedWorkload {
 		RotationDays: rotationDays,
 		Status:       workload.StatusActive,
 	}
+}
+
+func (w *Watcher) upsertWorkload(ctx context.Context, t *workload.ManagedWorkload) {
+	if err := w.repo.Upsert(ctx, t); err != nil {
+		slog.Error("failed to upsert workload",
+			"pod", t.PodName,
+			"namespace", t.Namespace,
+			"err", err,
+		)
+		return
+	}
+	slog.Info("workload upserted",
+		"pod", t.PodName,
+		"namespace", t.Namespace,
+	)
 }
 
 // ensureSecret creates the Secret if it doesn't exist yet.

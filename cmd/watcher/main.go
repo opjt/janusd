@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"karden/internal/adapter/k8s"
+	"karden/internal/adapter/sqlite"
 	"karden/internal/watcher"
 
 	"k8s.io/client-go/kubernetes"
@@ -13,12 +14,10 @@ import (
 )
 
 func main() {
-	// structured logging to stdout
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		// fallback to kubeconfig for local development
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 			loadingRules,
@@ -39,8 +38,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// SQLite DB 초기화
+	dsn := os.Getenv("KARDEN_DB_PATH")
+	if dsn == "" {
+		dsn = "karden.db"
+	}
+	db, err := sqlite.Open(dsn)
+	if err != nil {
+		slog.Error("failed to open database", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
 	store := k8s.NewSecretStore(clientset)
-	w := watcher.New(clientset, store)
+	repo := sqlite.NewWorkloadRepository(db)
+	w := watcher.New(clientset, store, repo)
 
 	w.Start()
 }
