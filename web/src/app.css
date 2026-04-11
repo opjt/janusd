@@ -89,6 +89,18 @@
   --noise: 0;
 }
 
+/* ── shadcn → daisyUI variable bridge ───────────────────────── */
+@theme inline {
+  --color-background:         var(--color-base-100);
+  --color-foreground:         var(--color-base-content);
+  --color-popover:            var(--color-base-100);
+  --color-popover-foreground: var(--color-base-content);
+  --color-muted:              var(--color-base-200);
+  --color-muted-foreground:   var(--color-base-content);
+  --color-ring:               var(--color-primary);
+  --radius:                   0.5rem;
+}
+
 /* ── global base ─────────────────────────────────────────────── */
 @layer base {
   html {
