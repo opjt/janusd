@@ -66,3 +66,16 @@ func (s *SecretStore) Set(ctx context.Context, namespace, name string, data map[
 func (s *SecretStore) Delete(ctx context.Context, namespace, name string) error {
 	return s.client.CoreV1().Secrets(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
+
+func (s *SecretStore) GetSecretData(ctx context.Context, namespace, name string) (map[string]string, error) {
+	secret, err := s.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	data := make(map[string]string, len(secret.Data))
+	for k, v := range secret.Data {
+		data[k] = string(v)
+	}
+	return data, nil
+}
