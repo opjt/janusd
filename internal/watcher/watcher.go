@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
+	"karden/internal/domain/audit"
 	"karden/internal/domain/workload"
 
 	corev1 "k8s.io/api/core/v1"
@@ -14,18 +15,20 @@ import (
 )
 
 type Watcher struct {
-	client kubernetes.Interface
-	store  workload.SecretStore
-	repo   workload.Repository
-	stopCh chan struct{}
+	client    kubernetes.Interface
+	store     workload.SecretStore
+	repo      workload.Repository
+	auditRepo audit.Repository
+	stopCh    chan struct{}
 }
 
-func New(client kubernetes.Interface, store workload.SecretStore, repo workload.Repository) *Watcher {
+func New(client kubernetes.Interface, store workload.SecretStore, repo workload.Repository, auditRepo audit.Repository) *Watcher {
 	return &Watcher{
-		client: client,
-		store:  store,
-		repo:   repo,
-		stopCh: make(chan struct{}),
+		client:    client,
+		store:     store,
+		repo:      repo,
+		auditRepo: auditRepo,
+		stopCh:    make(chan struct{}),
 	}
 }
 
@@ -89,8 +92,10 @@ func (w *Watcher) handlePod(pod *corev1.Pod) {
 	)
 
 	ctx := context.Background()
-	w.ensureSecret(ctx, t)
-	w.upsertWorkload(ctx, t)
+	id := w.upsertWorkload(ctx, t)
+	if id > 0 {
+		w.ensureSecret(ctx, t, id)
+	}
 }
 
 func (w *Watcher) handlePodDeleted(pod *corev1.Pod) {
@@ -156,25 +161,28 @@ func parseTarget(pod *corev1.Pod) *workload.ManagedWorkload {
 	}
 }
 
-func (w *Watcher) upsertWorkload(ctx context.Context, t *workload.ManagedWorkload) {
-	if err := w.repo.Upsert(ctx, t); err != nil {
+// upsertWorkload persists the workload and returns its DB id (0 on error).
+func (w *Watcher) upsertWorkload(ctx context.Context, t *workload.ManagedWorkload) int64 {
+	id, err := w.repo.Upsert(ctx, t)
+	if err != nil {
 		slog.Error("failed to upsert workload",
 			"pod", t.PodName,
 			"namespace", t.Namespace,
 			"err", err,
 		)
-		return
+		return 0
 	}
 	slog.Info("workload upserted",
 		"pod", t.PodName,
 		"namespace", t.Namespace,
 	)
+	return id
 }
 
-// ensureSecret creates the Secret if it doesn't exist yet.
-func (w *Watcher) ensureSecret(ctx context.Context, t *workload.ManagedWorkload) {
-	existing, err := w.store.Get(ctx, t.Namespace, t.SecretName, "")
-	if err == nil && existing != "" {
+// ensureSecret creates the K8s Secret if it doesn't exist yet, then writes an audit log.
+func (w *Watcher) ensureSecret(ctx context.Context, t *workload.ManagedWorkload, workloadID int64) {
+	existing, err := w.store.GetData(ctx, t.Namespace, t.SecretName)
+	if err == nil && len(existing) > 0 {
 		slog.Info("secret already exists, skipping",
 			"secret", t.SecretName,
 		)
@@ -187,6 +195,13 @@ func (w *Watcher) ensureSecret(ctx context.Context, t *workload.ManagedWorkload)
 			"secret", t.SecretName,
 			"err", err,
 		)
+		_ = w.auditRepo.Save(ctx, &audit.AuditLog{
+			TargetID: int(workloadID),
+			Action:   audit.ActionCreate,
+			Actor:    "karden",
+			Result:   audit.ResultFailure,
+			Reason:   err.Error(),
+		})
 		return
 	}
 
@@ -194,6 +209,12 @@ func (w *Watcher) ensureSecret(ctx context.Context, t *workload.ManagedWorkload)
 		"secret", t.SecretName,
 		"namespace", t.Namespace,
 	)
+	_ = w.auditRepo.Save(ctx, &audit.AuditLog{
+		TargetID: int(workloadID),
+		Action:   audit.ActionCreate,
+		Actor:    "karden",
+		Result:   audit.ResultSuccess,
+	})
 }
 
 // buildSecretData generates initial secret values based on type.

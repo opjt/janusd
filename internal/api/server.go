@@ -10,6 +10,7 @@ func NewServer(addr string, h *Handler) *http.Server {
 	mux.HandleFunc("GET /api/v1/secrets", h.listSecrets)
 	mux.HandleFunc("GET /api/v1/secrets/{namespace}/{name}", h.getSecret)
 	mux.HandleFunc("POST /api/v1/secrets/{namespace}/{name}/rotate", h.rotateSecret)
+	mux.HandleFunc("GET /api/v1/audit", h.listAuditLogs)
 
 	return &http.Server{
 		Addr:    addr,

@@ -8,8 +8,8 @@ import (
 type Action string
 
 const (
+	ActionCreate    Action = "create"
 	ActionRotate    Action = "rotate"
-	ActionView      Action = "view"
 	ActionManualSet Action = "manual_set"
 )
 
@@ -35,4 +35,5 @@ type AuditLog struct {
 type Repository interface {
 	Save(ctx context.Context, log *AuditLog) error
 	ListByTarget(ctx context.Context, targetID int) ([]*AuditLog, error)
+	List(ctx context.Context, namespace, secretName string) ([]*AuditLog, error)
 }

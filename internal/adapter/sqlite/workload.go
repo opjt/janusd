@@ -20,8 +20,8 @@ func NewWorkloadRepository(db *sql.DB) *WorkloadRepository {
 	return &WorkloadRepository{db: db}
 }
 
-func (r *WorkloadRepository) Upsert(ctx context.Context, w *workload.ManagedWorkload) error {
-	_, err := r.db.ExecContext(ctx, `
+func (r *WorkloadRepository) Upsert(ctx context.Context, w *workload.ManagedWorkload) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
 		INSERT INTO managed_workloads
 			(pod_name, namespace, secret_name, type, db_type, db_host, db_port, rotation_days, status)
 		VALUES
@@ -39,7 +39,10 @@ func (r *WorkloadRepository) Upsert(ctx context.Context, w *workload.ManagedWork
 		w.Type, w.DBType, w.DBHost, w.DBPort,
 		w.RotationDays, w.Status,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 func (r *WorkloadRepository) SetInactive(ctx context.Context, podName, namespace string) error {
@@ -74,7 +77,7 @@ func (r *WorkloadRepository) List(ctx context.Context) ([]*workload.ManagedWorkl
 	}
 	defer rows.Close()
 
-	var results []*workload.ManagedWorkload
+	results := make([]*workload.ManagedWorkload, 0)
 	for rows.Next() {
 		w := &workload.ManagedWorkload{}
 		var lastRotatedAt sql.NullTime

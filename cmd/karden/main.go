@@ -70,16 +70,17 @@ func run(ctx context.Context, env config.Env) error {
 
 	store := k8s.NewSecretStore(clientset)
 	repo := sqlite.NewWorkloadRepository(db)
+	auditRepo := sqlite.NewAuditRepository(db)
 	secretSvc := workload.NewService(repo, store)
 
 	// watcher start
-	w := watcher.New(clientset, store, repo)
+	w := watcher.New(clientset, store, repo, auditRepo)
 	go w.Start()
 
 	// HTTP server
 	addr := fmt.Sprintf(":%d", env.Port)
 
-	handler := api.NewHandler(secretSvc)
+	handler := api.NewHandler(secretSvc, auditRepo)
 	srv := api.NewServer(addr, handler)
 
 	errChan := make(chan error, 1)
