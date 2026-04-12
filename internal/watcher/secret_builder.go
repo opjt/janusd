@@ -1,6 +1,9 @@
 package watcher
 
-import "karden/internal/domain/workload"
+import (
+	"karden/internal/domain/workload"
+	"karden/internal/pkg/secret"
+)
 
 // buildSecretData generates initial secret key-value pairs based on the workload type.
 func buildSecretData(wl *workload.ManagedWorkload) map[string]string {
@@ -14,7 +17,7 @@ func buildSecretData(wl *workload.ManagedWorkload) map[string]string {
 
 func buildDBSecretData(wl *workload.ManagedWorkload) map[string]string {
 	username := buildUsername(wl.SecretName)
-	pw := generatePassword()
+	pw := secret.GeneratePassword()
 
 	switch wl.DBType {
 	case workload.DBTypePostgres:
@@ -27,7 +30,7 @@ func buildDBSecretData(wl *workload.ManagedWorkload) map[string]string {
 		return map[string]string{
 			"MYSQL_USER":          username,
 			"MYSQL_PASSWORD":      pw,
-			"MYSQL_ROOT_PASSWORD": generatePassword(),
+			"MYSQL_ROOT_PASSWORD": secret.GeneratePassword(),
 		}
 	default:
 		return map[string]string{

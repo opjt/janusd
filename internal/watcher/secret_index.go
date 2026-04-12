@@ -9,6 +9,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+var _ workload.SecretIndex = (*kardenSecretIndex)(nil)
+
 // kardenSecretIndex implements workload.SecretIndex using the informer's lister cache.
 type kardenSecretIndex struct {
 	lister cache.GenericLister

@@ -1,4 +1,4 @@
-package watcher
+package secret
 
 import (
 	"crypto/rand"
@@ -6,7 +6,7 @@ import (
 )
 
 // generatePassword creates a cryptographically secure random password.
-func generatePassword() string {
+func GeneratePassword() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
