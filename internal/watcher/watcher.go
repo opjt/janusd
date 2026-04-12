@@ -25,25 +25,35 @@ var kardenSecretGVR = schema.GroupVersionResource{
 }
 
 type Watcher struct {
-	dynClient  dynamic.Interface
-	client     k8sclient.Interface
-	store      workload.SecretStore
-	repo       workload.Repository
-	auditRepo  audit.Repository
-	pods       *podMap
-	stopCh     chan struct{}
+	dynClient   dynamic.Interface
+	client      k8sclient.Interface
+	store       workload.SecretStore
+	auditRepo   audit.Repository
+	factory     dynamicinformer.DynamicSharedInformerFactory
+	secretIndex *kardenSecretIndex
+	pods        *podMap
+	stopCh      chan struct{}
 }
 
-func New(dynClient dynamic.Interface, client k8sclient.Interface, store workload.SecretStore, repo workload.Repository, auditRepo audit.Repository) *Watcher {
+func New(dynClient dynamic.Interface, client k8sclient.Interface, store workload.SecretStore, auditRepo audit.Repository) *Watcher {
+	factory := dynamicinformer.NewDynamicSharedInformerFactory(dynClient, 0)
+	ksInformer := factory.ForResource(kardenSecretGVR)
+
 	return &Watcher{
-		dynClient: dynClient,
-		client:    client,
-		store:     store,
-		repo:      repo,
-		auditRepo: auditRepo,
-		pods:      newPodMap(),
-		stopCh:    make(chan struct{}),
+		dynClient:   dynClient,
+		client:      client,
+		store:       store,
+		auditRepo:   auditRepo,
+		factory:     factory,
+		secretIndex: &kardenSecretIndex{lister: ksInformer.Lister()},
+		pods:        newPodMap(),
+		stopCh:      make(chan struct{}),
 	}
+}
+
+// SecretIndex exposes the informer-backed KardenSecret index for the service layer.
+func (w *Watcher) SecretIndex() workload.SecretIndex {
+	return w.secretIndex
 }
 
 // PodIndex exposes the pod-secret index for use by the service layer.
@@ -52,9 +62,8 @@ func (w *Watcher) PodIndex() workload.PodIndex {
 }
 
 func (w *Watcher) Start() {
-	// KardenSecret informer
-	factory := dynamicinformer.NewDynamicSharedInformerFactory(w.dynClient, 0)
-	informer := factory.ForResource(kardenSecretGVR).Informer()
+	// KardenSecret informer (factory and lister already initialized in New)
+	informer := w.factory.ForResource(kardenSecretGVR).Informer()
 
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj any) {
@@ -116,9 +125,9 @@ func (w *Watcher) Start() {
 		},
 	})
 
-	factory.Start(w.stopCh)
+	w.factory.Start(w.stopCh)
 	podFactory.Start(w.stopCh)
-	factory.WaitForCacheSync(w.stopCh)
+	w.factory.WaitForCacheSync(w.stopCh)
 	podFactory.WaitForCacheSync(w.stopCh)
 
 	slog.Info("watcher started")
@@ -138,12 +147,7 @@ func (w *Watcher) handleAdd(ks *kardenSecret) {
 	)
 
 	ctx := context.Background()
-	wl := ks.toWorkload()
-
-	id := w.upsertWorkload(ctx, wl)
-	if id > 0 {
-		w.ensureSecret(ctx, wl, id)
-	}
+	w.ensureSecret(ctx, ks.toWorkload())
 }
 
 func (w *Watcher) handleDelete(ks *kardenSecret) {
@@ -151,34 +155,10 @@ func (w *Watcher) handleDelete(ks *kardenSecret) {
 		"name", ks.Name,
 		"namespace", ks.Namespace,
 	)
-
-	ctx := context.Background()
-	if err := w.repo.SetInactive(ctx, ks.Name, ks.Namespace); err != nil {
-		slog.Error("failed to mark workload inactive",
-			"name", ks.Name,
-			"namespace", ks.Namespace,
-			"err", err,
-		)
-	}
-}
-
-// upsertWorkload persists the workload and returns its DB id (0 on error).
-func (w *Watcher) upsertWorkload(ctx context.Context, wl *workload.ManagedWorkload) int64 {
-	id, err := w.repo.Upsert(ctx, wl)
-	if err != nil {
-		slog.Error("failed to upsert workload",
-			"name", wl.PodName,
-			"namespace", wl.Namespace,
-			"err", err,
-		)
-		return 0
-	}
-	slog.Info("workload upserted", "name", wl.PodName, "namespace", wl.Namespace)
-	return id
 }
 
 // ensureSecret creates the K8s Secret if it doesn't exist yet, then writes an audit log.
-func (w *Watcher) ensureSecret(ctx context.Context, wl *workload.ManagedWorkload, workloadID int64) {
+func (w *Watcher) ensureSecret(ctx context.Context, wl *workload.ManagedWorkload) {
 	existing, err := w.store.GetData(ctx, wl.Namespace, wl.SecretName)
 	if err == nil && len(existing) > 0 {
 		slog.Info("secret already exists, skipping", "secret", wl.SecretName)
@@ -189,21 +169,23 @@ func (w *Watcher) ensureSecret(ctx context.Context, wl *workload.ManagedWorkload
 	if err := w.store.Set(ctx, wl.Namespace, wl.SecretName, data); err != nil {
 		slog.Error("failed to create secret", "secret", wl.SecretName, "err", err)
 		_ = w.auditRepo.Save(ctx, &audit.AuditLog{
-			TargetID: int(workloadID),
-			Action:   audit.ActionCreate,
-			Actor:    "karden",
-			Result:   audit.ResultFailure,
-			Reason:   err.Error(),
+			Namespace:  wl.Namespace,
+			SecretName: wl.SecretName,
+			Action:     audit.ActionCreate,
+			Actor:      "karden",
+			Result:     audit.ResultFailure,
+			Reason:     err.Error(),
 		})
 		return
 	}
 
 	slog.Info("secret created", "secret", wl.SecretName, "namespace", wl.Namespace)
 	_ = w.auditRepo.Save(ctx, &audit.AuditLog{
-		TargetID: int(workloadID),
-		Action:   audit.ActionCreate,
-		Actor:    "karden",
-		Result:   audit.ResultSuccess,
+		Namespace:  wl.Namespace,
+		SecretName: wl.SecretName,
+		Action:     audit.ActionCreate,
+		Actor:      "karden",
+		Result:     audit.ResultSuccess,
 	})
 }
 

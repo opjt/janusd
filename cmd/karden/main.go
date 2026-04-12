@@ -17,8 +17,8 @@ import (
 	"karden/internal/pkg/config"
 	"karden/internal/watcher"
 
-	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/dynamic"
+	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -75,12 +75,11 @@ func run(ctx context.Context, env config.Env) error {
 	defer db.Close()
 
 	store := k8s.NewSecretStore(clientset)
-	repo := sqlite.NewWorkloadRepository(db)
 	auditRepo := sqlite.NewAuditRepository(db)
 
-	// watcher start (must be created before service so PodIndex is available)
-	w := watcher.New(dynClient, clientset, store, repo, auditRepo)
-	secretSvc := workload.NewService(repo, store, w.PodIndex())
+	// watcher start
+	w := watcher.New(dynClient, clientset, store, auditRepo)
+	secretSvc := workload.NewService(w.SecretIndex(), store, w.PodIndex())
 	go w.Start()
 
 	// HTTP server

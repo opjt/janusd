@@ -29,18 +29,13 @@ type secretResponse struct {
 }
 
 func toResponse(v *workload.SecretView) *secretResponse {
-	var lastRotatedAt *string
-	if v.LastRotatedAt != nil {
-		s := v.LastRotatedAt.UTC().Format("2006-01-02T15:04:05Z")
-		lastRotatedAt = &s
-	}
 	return &secretResponse{
 		Name:          v.Name,
 		Namespace:     v.Namespace,
 		Type:          string(v.Type),
 		DBType:        string(v.DBType),
 		RotationDays:  v.RotationDays,
-		LastRotatedAt: lastRotatedAt,
+		LastRotatedAt: v.LastRotatedAt,
 		Status:        string(v.Status),
 		Pods:          v.Pods,
 		Data:          v.Data,
@@ -88,13 +83,14 @@ func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
 
 // auditResponse is the API DTO for an audit log entry.
 type auditResponse struct {
-	ID        int    `json:"id"`
-	TargetID  int    `json:"target_id"`
-	Action    string `json:"action"`
-	Actor     string `json:"actor"`
-	Result    string `json:"result"`
-	Reason    string `json:"reason"`
-	CreatedAt string `json:"created_at"`
+	ID         int    `json:"id"`
+	Namespace  string `json:"namespace"`
+	SecretName string `json:"secret_name"`
+	Action     string `json:"action"`
+	Actor      string `json:"actor"`
+	Result     string `json:"result"`
+	Reason     string `json:"reason"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // GET /api/v1/audit?namespace=&secret=
@@ -111,13 +107,14 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 	result := make([]*auditResponse, len(logs))
 	for i, l := range logs {
 		result[i] = &auditResponse{
-			ID:        l.ID,
-			TargetID:  l.TargetID,
-			Action:    string(l.Action),
-			Actor:     l.Actor,
-			Result:    string(l.Result),
-			Reason:    l.Reason,
-			CreatedAt: l.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ID:         l.ID,
+			Namespace:  l.Namespace,
+			SecretName: l.SecretName,
+			Action:     string(l.Action),
+			Actor:      l.Actor,
+			Result:     string(l.Result),
+			Reason:     l.Reason,
+			CreatedAt:  l.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		}
 	}
 
