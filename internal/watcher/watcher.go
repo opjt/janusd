@@ -42,6 +42,21 @@ func (w *Watcher) Start() {
 			pod := newObj.(*corev1.Pod)
 			w.handlePod(pod)
 		},
+		DeleteFunc: func(obj any) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				// handle tombstone object from the informer cache
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				pod, ok = tombstone.Obj.(*corev1.Pod)
+				if !ok {
+					return
+				}
+			}
+			w.handlePodDeleted(pod)
+		},
 	})
 
 	factory.Start(w.stopCh)
@@ -76,6 +91,27 @@ func (w *Watcher) handlePod(pod *corev1.Pod) {
 	ctx := context.Background()
 	w.ensureSecret(ctx, t)
 	w.upsertWorkload(ctx, t)
+}
+
+func (w *Watcher) handlePodDeleted(pod *corev1.Pod) {
+	if pod.Annotations[AnnotationInject] != "true" {
+		return
+	}
+
+	ctx := context.Background()
+	if err := w.repo.SetInactive(ctx, pod.Name, pod.Namespace); err != nil {
+		slog.Error("failed to mark workload inactive",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"err", err,
+		)
+		return
+	}
+
+	slog.Info("workload marked inactive",
+		"pod", pod.Name,
+		"namespace", pod.Namespace,
+	)
 }
 
 // parseTarget extracts a ManagedWorkload from pod annotations.

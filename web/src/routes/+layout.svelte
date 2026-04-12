@@ -1,7 +1,7 @@
 <script lang="ts">
-  import '../app.css'
-  import { page } from '$app/stores'
-  import { KeyRound, Moon, Sun, ScrollText, Settings } from '@lucide/svelte'
+  import { page } from '$app/stores';
+  import { Moon, ScrollText, Settings, Sun } from '@lucide/svelte';
+  import '../app.css';
 
   let theme = $state<'karden' | 'karden-dark'>('karden')
 

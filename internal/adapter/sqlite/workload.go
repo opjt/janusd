@@ -43,10 +43,14 @@ func (r *WorkloadRepository) Upsert(ctx context.Context, w *workload.ManagedWork
 }
 
 func (r *WorkloadRepository) SetInactive(ctx context.Context, podName, namespace string) error {
+	err := r.updateStatus(ctx, podName, namespace, workload.StatusInactive)
+	return err
+}
+func (r *WorkloadRepository) updateStatus(ctx context.Context, podName, namespace string, status workload.Status) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE managed_workloads SET status = 'inactive'
+		UPDATE managed_workloads SET status = ?
 		WHERE pod_name = ? AND namespace = ?
-	`, podName, namespace)
+	`, string(status), podName, namespace)
 	return err
 }
 
