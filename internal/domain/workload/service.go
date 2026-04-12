@@ -26,12 +26,13 @@ type Service interface {
 }
 
 type service struct {
-	repo  Repository
-	store SecretStore
+	repo     Repository
+	store    SecretStore
+	podIndex PodIndex
 }
 
-func NewService(repo Repository, store SecretStore) Service {
-	return &service{repo: repo, store: store}
+func NewService(repo Repository, store SecretStore, podIndex PodIndex) Service {
+	return &service{repo: repo, store: store, podIndex: podIndex}
 }
 
 func (s *service) List(ctx context.Context) ([]*SecretView, error) {
@@ -54,10 +55,9 @@ func (s *service) List(ctx context.Context) ([]*SecretView, error) {
 				RotationDays:  wl.RotationDays,
 				LastRotatedAt: wl.LastRotatedAt,
 				Status:        wl.Status,
-				Pods:          []string{},
+				Pods:          s.podIndex.GetPods(wl.Namespace, wl.SecretName),
 			}
 		}
-		index[k].Pods = append(index[k].Pods, wl.PodName)
 	}
 
 	result := make([]*SecretView, 0, len(index))
@@ -87,10 +87,9 @@ func (s *service) Get(ctx context.Context, namespace, name string) (*SecretView,
 				RotationDays:  wl.RotationDays,
 				LastRotatedAt: wl.LastRotatedAt,
 				Status:        wl.Status,
-				Pods:          []string{},
+				Pods:          s.podIndex.GetPods(namespace, name),
 			}
 		}
-		view.Pods = append(view.Pods, wl.PodName)
 	}
 
 	if view == nil {

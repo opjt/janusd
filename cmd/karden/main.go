@@ -77,10 +77,10 @@ func run(ctx context.Context, env config.Env) error {
 	store := k8s.NewSecretStore(clientset)
 	repo := sqlite.NewWorkloadRepository(db)
 	auditRepo := sqlite.NewAuditRepository(db)
-	secretSvc := workload.NewService(repo, store)
 
-	// watcher start
-	w := watcher.New(dynClient, store, repo, auditRepo)
+	// watcher start (must be created before service so PodIndex is available)
+	w := watcher.New(dynClient, clientset, store, repo, auditRepo)
+	secretSvc := workload.NewService(repo, store, w.PodIndex())
 	go w.Start()
 
 	// HTTP server

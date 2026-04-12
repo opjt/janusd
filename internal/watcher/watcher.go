@@ -8,11 +8,14 @@ import (
 	"karden/internal/domain/audit"
 	"karden/internal/domain/workload"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
+	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/informers"
 )
 
 var kardenSecretGVR = schema.GroupVersionResource{
@@ -22,24 +25,34 @@ var kardenSecretGVR = schema.GroupVersionResource{
 }
 
 type Watcher struct {
-	dynClient dynamic.Interface
-	store     workload.SecretStore
-	repo      workload.Repository
-	auditRepo audit.Repository
-	stopCh    chan struct{}
+	dynClient  dynamic.Interface
+	client     k8sclient.Interface
+	store      workload.SecretStore
+	repo       workload.Repository
+	auditRepo  audit.Repository
+	pods       *podMap
+	stopCh     chan struct{}
 }
 
-func New(dynClient dynamic.Interface, store workload.SecretStore, repo workload.Repository, auditRepo audit.Repository) *Watcher {
+func New(dynClient dynamic.Interface, client k8sclient.Interface, store workload.SecretStore, repo workload.Repository, auditRepo audit.Repository) *Watcher {
 	return &Watcher{
 		dynClient: dynClient,
+		client:    client,
 		store:     store,
 		repo:      repo,
 		auditRepo: auditRepo,
+		pods:      newPodMap(),
 		stopCh:    make(chan struct{}),
 	}
 }
 
+// PodIndex exposes the pod-secret index for use by the service layer.
+func (w *Watcher) PodIndex() workload.PodIndex {
+	return w.pods
+}
+
 func (w *Watcher) Start() {
+	// KardenSecret informer
 	factory := dynamicinformer.NewDynamicSharedInformerFactory(w.dynClient, 0)
 	informer := factory.ForResource(kardenSecretGVR).Informer()
 
@@ -72,8 +85,41 @@ func (w *Watcher) Start() {
 		},
 	})
 
+	// Pod informer — tracks which pods reference which secrets
+	podFactory := informers.NewSharedInformerFactory(w.client, 0)
+	podInformer := podFactory.Core().V1().Pods().Informer()
+
+	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if pod, ok := obj.(*corev1.Pod); ok {
+				w.pods.set(pod)
+			}
+		},
+		UpdateFunc: func(old, new any) {
+			if oldPod, ok := old.(*corev1.Pod); ok {
+				w.pods.remove(oldPod)
+			}
+			if newPod, ok := new.(*corev1.Pod); ok {
+				w.pods.set(newPod)
+			}
+		},
+		DeleteFunc: func(obj any) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+					pod, _ = tombstone.Obj.(*corev1.Pod)
+				}
+			}
+			if pod != nil {
+				w.pods.remove(pod)
+			}
+		},
+	})
+
 	factory.Start(w.stopCh)
+	podFactory.Start(w.stopCh)
 	factory.WaitForCacheSync(w.stopCh)
+	podFactory.WaitForCacheSync(w.stopCh)
 
 	slog.Info("watcher started")
 	<-w.stopCh
