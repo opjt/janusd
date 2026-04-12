@@ -7,7 +7,7 @@ metadata:
 spec:
   type: database
   dbType: postgres
-  dbHost: test-db-svc.default.svc.cluster.local
+  dbService: test-db-svc
   rotationDays: 30
 ---
 # Service — stable DNS for the postgres pod

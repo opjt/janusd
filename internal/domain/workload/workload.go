@@ -34,8 +34,7 @@ type ManagedWorkload struct {
 	SecretName    string
 	Type          Type
 	DBType        DBType
-	DBHost        string
-	DBPort        int
+	DBService     string // K8s Service name; resolved to {name}.{namespace} at runtime
 	RotationDays  int
 	LastRotatedAt *time.Time
 	Status        Status
